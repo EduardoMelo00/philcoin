@@ -30,9 +30,12 @@ export async function GET() {
     const quote = phl.quote?.USD;
     const info = phlInfo?.[0];
 
+    const circulatingSupply = phl.circulating_supply > 0
+      ? phl.circulating_supply
+      : 745_360_000;
     const marketCap = quote?.market_cap > 0
       ? quote.market_cap
-      : (quote?.price ?? 0) * (phl.circulating_supply ?? 745_360_000);
+      : (quote?.price ?? 0) * circulatingSupply;
 
     return NextResponse.json({
       price: quote?.price ?? 0,
@@ -41,8 +44,8 @@ export async function GET() {
       percent_change_24h: quote?.percent_change_24h ?? 0,
       percent_change_7d: quote?.percent_change_7d ?? 0,
       percent_change_30d: quote?.percent_change_30d ?? 0,
-      circulating_supply: phl.circulating_supply ?? 0,
-      total_supply: phl.total_supply ?? 0,
+      circulating_supply: circulatingSupply,
+      total_supply: phl.total_supply > 0 ? phl.total_supply : 5_000_000_000,
       max_supply: phl.max_supply ?? 0,
       cmc_rank: phl.cmc_rank ?? 0,
       num_market_pairs: phl.num_market_pairs ?? 0,

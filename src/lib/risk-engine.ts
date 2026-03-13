@@ -57,9 +57,12 @@ export function computeRiskScore(
   transactionData: TransactionData,
   priceData: TokenPrice
 ): RiskData {
+  const circulatingSupply = priceData.circulating_supply && priceData.circulating_supply > 0
+    ? priceData.circulating_supply
+    : 745_360_000;
   const marketCap = priceData.usd_market_cap > 0
     ? priceData.usd_market_cap
-    : priceData.usd * (priceData.circulating_supply ?? 745_360_000);
+    : priceData.usd * circulatingSupply;
 
   const liq = scoreLiquidity(priceData.usd_24h_vol, marketCap, liquidityData.totalLiquidity);
   const concentrationScore = scoreConcentration(holderData.hhi);
