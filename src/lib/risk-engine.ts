@@ -1,12 +1,20 @@
 import type { RiskData, RiskFactor, HolderData, LiquidityData, TransactionData, TokenPrice } from "@/types/analytics";
 import { RISK_WEIGHTS } from "./constants";
 
-function scoreLiquidity(liquidityMcapRatio: number): number {
-  if (liquidityMcapRatio >= 15) return 10;
-  if (liquidityMcapRatio >= 10) return 8;
-  if (liquidityMcapRatio >= 5) return 6;
-  if (liquidityMcapRatio >= 2) return 4;
-  return 2;
+function scoreLiquidity(volume24h: number, marketCap: number, dexTvl: number): { score: number; description: string } {
+  const volRatio = marketCap > 0 ? (volume24h / marketCap) * 100 : 0;
+
+  if (dexTvl > 1_000_000) {
+    return { score: 9, description: `DEX TVL: $${(dexTvl / 1e6).toFixed(1)}M — strong on-chain liquidity` };
+  }
+
+  if (volRatio >= 1) {
+    return { score: 7, description: `CEX-based liquidity (MEXC, BitMart). Vol/MCap: ${volRatio.toFixed(2)}%` };
+  }
+  if (volRatio >= 0.3) {
+    return { score: 5, description: `CEX-based liquidity. Vol/MCap: ${volRatio.toFixed(2)}% — adequate` };
+  }
+  return { score: 3, description: `Low liquidity. Vol/MCap: ${volRatio.toFixed(2)}%. Minimal DEX presence` };
 }
 
 function scoreConcentration(hhi: number): number {
@@ -49,18 +57,22 @@ export function computeRiskScore(
   transactionData: TransactionData,
   priceData: TokenPrice
 ): RiskData {
-  const liquidityScore = scoreLiquidity(liquidityData.liquidityMcapRatio);
+  const marketCap = priceData.usd_market_cap > 0
+    ? priceData.usd_market_cap
+    : priceData.usd * (priceData.circulating_supply ?? 745_360_000);
+
+  const liq = scoreLiquidity(priceData.usd_24h_vol, marketCap, liquidityData.totalLiquidity);
   const concentrationScore = scoreConcentration(holderData.hhi);
   const securityScore = 10;
-  const volumeScore = scoreVolume(priceData.usd_24h_vol, priceData.usd_market_cap);
+  const volumeScore = scoreVolume(priceData.usd_24h_vol, marketCap);
   const volatilityScore = scoreVolatility(priceData.usd_24h_change);
   const smartMoneyScore = transactionData.buyPressure >= 50 ? 7 : 5;
 
   const factors: RiskFactor[] = [
-    { name: "Liquidity Ratio", score: liquidityScore, maxScore: 10, weight: RISK_WEIGHTS.liquidity, description: `TVL vs Market Cap ratio at ${liquidityData.liquidityMcapRatio.toFixed(1)}%` },
+    { name: "Liquidity", score: liq.score, maxScore: 10, weight: RISK_WEIGHTS.liquidity, description: liq.description },
     { name: "Contract Security", score: securityScore, maxScore: 10, weight: RISK_WEIGHTS.security, description: "Audited, verified on Polygonscan" },
     { name: "Holder Concentration", score: concentrationScore, maxScore: 10, weight: RISK_WEIGHTS.concentration, description: `HHI index: ${holderData.hhi.toFixed(3)} (${holderData.concentrationLevel})` },
-    { name: "Trading Volume", score: volumeScore, maxScore: 10, weight: RISK_WEIGHTS.volume, description: `24h volume relative to market cap` },
+    { name: "Trading Volume", score: volumeScore, maxScore: 10, weight: RISK_WEIGHTS.volume, description: `Vol/MCap: ${marketCap > 0 ? ((priceData.usd_24h_vol / marketCap) * 100).toFixed(2) : 0}%` },
     { name: "Price Volatility", score: volatilityScore, maxScore: 10, weight: RISK_WEIGHTS.volatility, description: `24h change: ${priceData.usd_24h_change.toFixed(1)}%` },
     { name: "Smart Money Flow", score: smartMoneyScore, maxScore: 10, weight: RISK_WEIGHTS.smartMoney, description: `Buy pressure: ${transactionData.buyPressure}%` },
   ];

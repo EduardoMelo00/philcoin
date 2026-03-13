@@ -11,12 +11,12 @@ interface LiquidityAnalysisProps {
 }
 
 function buildDepthChart(bids: { price: number; quantity: number }[], asks: { price: number; quantity: number }[]) {
-  const sortedBids = [...bids].sort((a, b) => b.price - a.price);
+  const sortedBids = [...bids].sort((a, b) => a.price - b.price);
   const sortedAsks = [...asks].sort((a, b) => a.price - b.price);
 
   const bidPoints: { price: string; bid: number; ask: number }[] = [];
   let cumulativeBid = 0;
-  for (const b of sortedBids.reverse()) {
+  for (const b of sortedBids) {
     cumulativeBid += b.quantity;
     bidPoints.push({ price: b.price.toFixed(6), bid: cumulativeBid, ask: 0 });
   }
@@ -33,16 +33,15 @@ function buildDepthChart(bids: { price: number; quantity: number }[], asks: { pr
 
 export default function LiquidityAnalysis({ data }: LiquidityAnalysisProps) {
   const { data: orderbook } = useOrderbook();
-  const maxTvl = Math.max(...data.pools.map((p) => p.tvl));
   const depthData = orderbook && (orderbook.bids.length > 0 || orderbook.asks.length > 0)
     ? buildDepthChart(orderbook.bids, orderbook.asks)
     : [];
 
-  const healthColor = {
-    Healthy: "text-accent-bullish",
-    Adequate: "text-accent-warning",
-    Low: "text-accent-bearish",
-  }[data.liquidityHealth];
+  const totalBidDepth = orderbook?.bids.reduce((s, b) => s + b.quantity * b.price, 0) ?? 0;
+  const totalAskDepth = orderbook?.asks.reduce((s, a) => s + a.quantity * a.price, 0) ?? 0;
+
+  const hasDexPools = data.pools.length > 0 && data.totalLiquidity > 1;
+  const maxTvl = hasDexPools ? Math.max(...data.pools.map((p) => p.tvl)) : 0;
 
   return (
     <motion.div
@@ -52,35 +51,6 @@ export default function LiquidityAnalysis({ data }: LiquidityAnalysisProps) {
       className="analytics-card p-4 md:p-6"
     >
       <h2 className="text-xl font-semibold text-text-primary mb-4">Liquidity Analysis</h2>
-
-      <div className="space-y-3 mb-6">
-        {data.pools.map((pool) => (
-          <div key={pool.name} className="space-y-1">
-            <div className="flex justify-between items-center">
-              <span className="text-sm text-text-secondary">{pool.name}</span>
-              <div className="flex items-center gap-2">
-                <span className="text-sm font-mono font-medium text-text-primary">
-                  {formatCurrency(pool.tvl)}
-                </span>
-                <span className={`text-[10px] font-mono ${pool.change24h >= 0 ? "text-accent-bullish" : "text-accent-bearish"}`}>
-                  {pool.change24h >= 0 ? "+" : ""}{pool.change24h.toFixed(1)}%
-                </span>
-              </div>
-            </div>
-            <div className="h-2.5 rounded-full bg-elevated overflow-hidden">
-              <motion.div
-                initial={{ width: 0 }}
-                animate={{ width: `${(pool.tvl / maxTvl) * 100}%` }}
-                transition={{ duration: 0.6, delay: 0.1 }}
-                className="h-full rounded-full"
-                style={{
-                  background: "linear-gradient(90deg, #3B82F6, #6366F1)",
-                }}
-              />
-            </div>
-          </div>
-        ))}
-      </div>
 
       {depthData.length > 0 && (
         <div className="mb-6">
@@ -131,25 +101,70 @@ export default function LiquidityAnalysis({ data }: LiquidityAnalysisProps) {
         </div>
       )}
 
+      <div className="mb-4">
+        <h3 className="text-xs text-text-tertiary uppercase tracking-wider font-medium mb-3">CEX Markets</h3>
+        <div className="space-y-2">
+          {[
+            { name: "MEXC", pair: "PHL/USDT", dominance: 9.52 },
+            { name: "BitMart", pair: "PHL/USDT", dominance: 90.48 },
+          ].map((cex) => (
+            <div key={cex.name} className="flex justify-between items-center py-2 border-b border-[var(--border-subtle)] last:border-0">
+              <div className="flex items-center gap-2">
+                <span className="text-sm font-medium text-text-primary">{cex.name}</span>
+                <span className="text-[10px] text-text-tertiary">{cex.pair}</span>
+              </div>
+              <span className="text-sm font-mono text-text-secondary">{cex.dominance}% vol</span>
+            </div>
+          ))}
+        </div>
+      </div>
+
+      {hasDexPools && (
+        <div className="mb-4">
+          <h3 className="text-xs text-text-tertiary uppercase tracking-wider font-medium mb-3">DEX Pools (Polygon)</h3>
+          <div className="space-y-3">
+            {data.pools.map((pool) => (
+              <div key={pool.name} className="space-y-1">
+                <div className="flex justify-between items-center">
+                  <span className="text-sm text-text-secondary">{pool.name}</span>
+                  <span className="text-sm font-mono font-medium text-text-primary">
+                    {formatCurrency(pool.tvl)}
+                  </span>
+                </div>
+                <div className="h-2 rounded-full bg-elevated overflow-hidden">
+                  <motion.div
+                    initial={{ width: 0 }}
+                    animate={{ width: `${(pool.tvl / maxTvl) * 100}%` }}
+                    transition={{ duration: 0.6, delay: 0.1 }}
+                    className="h-full rounded-full"
+                    style={{ background: "linear-gradient(90deg, #3B82F6, #6366F1)" }}
+                  />
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
       <div className="grid grid-cols-3 gap-3 pt-4 border-t border-[var(--border-subtle)]">
         <div>
-          <p className="text-[10px] text-text-tertiary uppercase tracking-wider">Total Liquidity</p>
+          <p className="text-[10px] text-text-tertiary uppercase tracking-wider">Bid Depth</p>
+          <p className="text-lg font-mono font-semibold text-accent-bullish mt-1">
+            {formatCurrency(totalBidDepth)}
+          </p>
+        </div>
+        <div>
+          <p className="text-[10px] text-text-tertiary uppercase tracking-wider">Ask Depth</p>
+          <p className="text-lg font-mono font-semibold text-accent-bearish mt-1">
+            {formatCurrency(totalAskDepth)}
+          </p>
+        </div>
+        <div>
+          <p className="text-[10px] text-text-tertiary uppercase tracking-wider">DEX TVL</p>
           <p className="text-lg font-mono font-semibold text-text-primary mt-1">
             {formatCurrency(data.totalLiquidity)}
           </p>
-        </div>
-        <div>
-          <p className="text-[10px] text-text-tertiary uppercase tracking-wider">Liq/MCap</p>
-          <p className={`text-lg font-mono font-semibold mt-1 ${healthColor}`}>
-            {data.liquidityMcapRatio.toFixed(1)}%
-          </p>
-          <p className={`text-[10px] ${healthColor}`}>{data.liquidityHealth}</p>
-        </div>
-        <div>
-          <p className="text-[10px] text-text-tertiary uppercase tracking-wider">24h Volume</p>
-          <p className="text-lg font-mono font-semibold mt-1 text-text-primary">
-            {formatCurrency(data.netFlow24h)}
-          </p>
+          <p className="text-[10px] text-accent-warning">Minimal</p>
         </div>
       </div>
     </motion.div>

@@ -21,7 +21,7 @@ export async function GET() {
     const pools = rawPools
       .filter((p: Record<string, unknown>) => {
         const attrs = p.attributes as Record<string, unknown> | undefined;
-        return attrs && Number(attrs.reserve_in_usd) > 100;
+        return attrs && Number(attrs.reserve_in_usd) > 0.01;
       })
       .slice(0, 10)
       .map((p: Record<string, unknown>) => {

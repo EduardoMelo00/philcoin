@@ -12,26 +12,21 @@ async function fetchLiquidity(): Promise<LiquidityData> {
   if (data.error) throw new Error(data.error);
 
   const pools = data.pools.map((p: Record<string, unknown>) => ({
-    name: p.dex || p.name,
-    tvl: p.tvl,
-    volume24h: p.volume24h,
-    change24h: p.change24h,
+    name: String(p.dex || p.name || "Unknown"),
+    tvl: Number(p.tvl) || 0,
+    volume24h: Number(p.volume24h) || 0,
+    change24h: Number(p.change24h) || 0,
   }));
 
-  const totalLiquidity = data.totalLiquidity || 0;
-  const mcapEstimate = 17_000_000;
-  const ratio = totalLiquidity > 0 ? (totalLiquidity / mcapEstimate) * 100 : 0;
-
-  let health: "Healthy" | "Adequate" | "Low" = "Low";
-  if (ratio >= 10) health = "Healthy";
-  else if (ratio >= 5) health = "Adequate";
+  const totalLiquidity = Number(data.totalLiquidity) || 0;
+  const totalVolume = Number(data.totalVolume24h) || 0;
 
   return {
     pools,
     totalLiquidity,
-    liquidityMcapRatio: parseFloat(ratio.toFixed(1)),
-    liquidityHealth: health,
-    netFlow24h: data.totalVolume24h || 0,
+    liquidityMcapRatio: 0,
+    liquidityHealth: "Low",
+    netFlow24h: totalVolume,
   };
 }
 
