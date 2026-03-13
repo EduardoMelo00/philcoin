@@ -3,38 +3,40 @@
 import { motion } from "framer-motion";
 import { AreaChart, Area, XAxis, YAxis, ResponsiveContainer, Tooltip } from "recharts";
 import { formatCurrency } from "@/lib/formatters";
+import { useOrderbook } from "@/hooks/useOrderbook";
 import type { LiquidityData } from "@/types/analytics";
 
 interface LiquidityAnalysisProps {
   data: LiquidityData;
 }
 
-function generateDepthData() {
-  const bids = [];
-  const asks = [];
-  const midPrice = 0.00234;
+function buildDepthChart(bids: { price: number; quantity: number }[], asks: { price: number; quantity: number }[]) {
+  const sortedBids = [...bids].sort((a, b) => b.price - a.price);
+  const sortedAsks = [...asks].sort((a, b) => a.price - b.price);
 
+  const bidPoints: { price: string; bid: number; ask: number }[] = [];
   let cumulativeBid = 0;
+  for (const b of sortedBids.reverse()) {
+    cumulativeBid += b.quantity;
+    bidPoints.push({ price: b.price.toFixed(6), bid: cumulativeBid, ask: 0 });
+  }
+
+  const askPoints: { price: string; bid: number; ask: number }[] = [];
   let cumulativeAsk = 0;
-
-  for (let i = 20; i >= 1; i--) {
-    const price = midPrice * (1 - i * 0.005);
-    cumulativeBid += 50000 + Math.random() * 100000;
-    bids.push({ price: price.toFixed(6), bid: cumulativeBid, ask: 0 });
+  for (const a of sortedAsks) {
+    cumulativeAsk += a.quantity;
+    askPoints.push({ price: a.price.toFixed(6), bid: 0, ask: cumulativeAsk });
   }
 
-  for (let i = 1; i <= 20; i++) {
-    const price = midPrice * (1 + i * 0.005);
-    cumulativeAsk += 50000 + Math.random() * 100000;
-    asks.push({ price: price.toFixed(6), bid: 0, ask: cumulativeAsk });
-  }
-
-  return [...bids, { price: midPrice.toFixed(6), bid: cumulativeBid, ask: 0 }, ...asks];
+  return [...bidPoints, ...askPoints];
 }
 
 export default function LiquidityAnalysis({ data }: LiquidityAnalysisProps) {
+  const { data: orderbook } = useOrderbook();
   const maxTvl = Math.max(...data.pools.map((p) => p.tvl));
-  const depthData = generateDepthData();
+  const depthData = orderbook && (orderbook.bids.length > 0 || orderbook.asks.length > 0)
+    ? buildDepthChart(orderbook.bids, orderbook.asks)
+    : [];
 
   const healthColor = {
     Healthy: "text-accent-bullish",
@@ -80,52 +82,54 @@ export default function LiquidityAnalysis({ data }: LiquidityAnalysisProps) {
         ))}
       </div>
 
-      <div className="mb-6">
-        <h3 className="text-xs text-text-tertiary uppercase tracking-wider font-medium mb-3">Order Book Depth</h3>
-        <div className="h-[160px]">
-          <ResponsiveContainer width="100%" height="100%">
-            <AreaChart data={depthData}>
-              <XAxis dataKey="price" hide />
-              <YAxis hide />
-              <Tooltip
-                content={({ active, payload }) => {
-                  if (!active || !payload?.[0]) return null;
-                  const point = payload[0].payload;
-                  return (
-                    <div className="bg-overlay border border-[var(--border-subtle)] rounded-lg px-3 py-2 shadow-xl">
-                      <p className="text-[10px] text-text-tertiary">Price: ${point.price}</p>
-                      {point.bid > 0 && (
-                        <p className="text-xs font-mono text-accent-bullish">
-                          Bid: {formatCurrency(point.bid)}
-                        </p>
-                      )}
-                      {point.ask > 0 && (
-                        <p className="text-xs font-mono text-accent-bearish">
-                          Ask: {formatCurrency(point.ask)}
-                        </p>
-                      )}
-                    </div>
-                  );
-                }}
-              />
-              <Area
-                type="stepAfter"
-                dataKey="bid"
-                stroke="#22C55E"
-                fill="rgba(34, 197, 94, 0.1)"
-                strokeWidth={1.5}
-              />
-              <Area
-                type="stepAfter"
-                dataKey="ask"
-                stroke="#EF4444"
-                fill="rgba(239, 68, 68, 0.1)"
-                strokeWidth={1.5}
-              />
-            </AreaChart>
-          </ResponsiveContainer>
+      {depthData.length > 0 && (
+        <div className="mb-6">
+          <h3 className="text-xs text-text-tertiary uppercase tracking-wider font-medium mb-3">Order Book Depth (MEXC)</h3>
+          <div className="h-[160px]">
+            <ResponsiveContainer width="100%" height="100%">
+              <AreaChart data={depthData}>
+                <XAxis dataKey="price" hide />
+                <YAxis hide />
+                <Tooltip
+                  content={({ active, payload }) => {
+                    if (!active || !payload?.[0]) return null;
+                    const point = payload[0].payload;
+                    return (
+                      <div className="bg-overlay border border-[var(--border-subtle)] rounded-lg px-3 py-2 shadow-xl">
+                        <p className="text-[10px] text-text-tertiary">Price: ${point.price}</p>
+                        {point.bid > 0 && (
+                          <p className="text-xs font-mono text-accent-bullish">
+                            Bid: {Math.round(point.bid).toLocaleString()} PHL
+                          </p>
+                        )}
+                        {point.ask > 0 && (
+                          <p className="text-xs font-mono text-accent-bearish">
+                            Ask: {Math.round(point.ask).toLocaleString()} PHL
+                          </p>
+                        )}
+                      </div>
+                    );
+                  }}
+                />
+                <Area
+                  type="stepAfter"
+                  dataKey="bid"
+                  stroke="#22C55E"
+                  fill="rgba(34, 197, 94, 0.1)"
+                  strokeWidth={1.5}
+                />
+                <Area
+                  type="stepAfter"
+                  dataKey="ask"
+                  stroke="#EF4444"
+                  fill="rgba(239, 68, 68, 0.1)"
+                  strokeWidth={1.5}
+                />
+              </AreaChart>
+            </ResponsiveContainer>
+          </div>
         </div>
-      </div>
+      )}
 
       <div className="grid grid-cols-3 gap-3 pt-4 border-t border-[var(--border-subtle)]">
         <div>
@@ -142,9 +146,9 @@ export default function LiquidityAnalysis({ data }: LiquidityAnalysisProps) {
           <p className={`text-[10px] ${healthColor}`}>{data.liquidityHealth}</p>
         </div>
         <div>
-          <p className="text-[10px] text-text-tertiary uppercase tracking-wider">24h Net Flow</p>
-          <p className={`text-lg font-mono font-semibold mt-1 ${data.netFlow24h >= 0 ? "text-accent-bullish" : "text-accent-bearish"}`}>
-            {data.netFlow24h >= 0 ? "+" : ""}{formatCurrency(data.netFlow24h)}
+          <p className="text-[10px] text-text-tertiary uppercase tracking-wider">24h Volume</p>
+          <p className="text-lg font-mono font-semibold mt-1 text-text-primary">
+            {formatCurrency(data.netFlow24h)}
           </p>
         </div>
       </div>

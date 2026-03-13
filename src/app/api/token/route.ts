@@ -32,9 +32,7 @@ export async function GET() {
 
     const marketCap = quote?.market_cap > 0
       ? quote.market_cap
-      : quote?.fully_diluted_market_cap > 0
-        ? quote.fully_diluted_market_cap
-        : (quote?.price ?? 0) * (phl.total_supply ?? 5_000_000_000);
+      : (quote?.price ?? 0) * (phl.circulating_supply ?? 745_360_000);
 
     return NextResponse.json({
       price: quote?.price ?? 0,
