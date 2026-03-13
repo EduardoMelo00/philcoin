@@ -20,17 +20,20 @@ function seededRandom(seed: number) {
 }
 
 export const mockTokenPrice: TokenPrice = {
-  usd: 0.00234,
-  usd_24h_change: 5.67,
-  usd_market_cap: 23_400_000,
-  usd_24h_vol: 1_200_000,
+  usd: 0.0233,
+  usd_24h_change: 2.54,
+  usd_market_cap: 17_400_000,
+  usd_24h_vol: 65_000,
+  circulating_supply: 745_360_000,
+  total_supply: 5_000_000_000,
+  fully_diluted_market_cap: 116_500_000,
 };
 
 export const mockTokenInfo: TokenInfo = {
   name: "Philcoin",
   symbol: "PHL",
   totalSupply: 5_000_000_000,
-  circulatingSupply: 3_600_000_000,
+  circulatingSupply: 745_360_000,
   decimals: 18,
   contractAddress: "0x24c80D7F032Bc8D308F10d59e20d5a65b90b7334",
 };
@@ -53,7 +56,7 @@ function generateRealisticPriceHistory(
     price = Math.max(price * (1 + change), basePrice * 0.1);
 
     const time = now - (totalPoints - i) * intervalSeconds;
-    const volume = 500_000 + rand() * 2_000_000;
+    const volume = 30_000 + rand() * 80_000;
 
     points.push({ time, value: price, volume });
   }
@@ -61,20 +64,20 @@ function generateRealisticPriceHistory(
   points.push({
     time: now,
     value: basePrice,
-    volume: 800_000 + rand() * 1_000_000,
+    volume: 40_000 + rand() * 50_000,
   });
 
   return points;
 }
 
 export function getMockPriceHistory(days: number): PricePoint[] {
-  return generateRealisticPriceHistory(days, mockTokenPrice.usd);
+  return generateRealisticPriceHistory(days, 0.0233);
 }
 
 export const mockHolderData: HolderData = {
-  totalHolders: 15_247,
+  totalHolders: 5_180,
   hhi: 0.087,
-  concentrationLevel: "Low",
+  concentrationLevel: "Medium",
   holders: [
     { rank: 1, address: "0x1a2b3c4d5e6f7890abcdef1234567890abcdef01", holdings: 820_000_000, percentage: 8.2, label: "Treasury" },
     { rank: 2, address: "0x9b3c4d5e6f7890abcdef1234567890abcdef02c1", holdings: 610_000_000, percentage: 6.1, label: "Team" },
@@ -121,9 +124,9 @@ function generateDailyTransactions(days: number): DailyTransaction[] {
     date.setDate(date.getDate() - i);
     const dateStr = date.toISOString().split("T")[0];
 
-    const baseTxns = 800 + Math.floor(rand() * 800);
+    const baseTxns = 150 + Math.floor(rand() * 200);
     const baseWallets = Math.floor(baseTxns * (0.55 + rand() * 0.2));
-    const totalVolume = 400_000 + rand() * 1_600_000;
+    const totalVolume = 30_000 + rand() * 70_000;
     const buyRatio = 0.45 + rand() * 0.2;
 
     data.push({
@@ -157,7 +160,7 @@ export const mockRiskData: RiskData = {
     { name: "Liquidity Ratio", score: 9, maxScore: 10, weight: 0.25, description: "TVL vs Market Cap ratio is healthy at 14.6%" },
     { name: "Contract Security", score: 10, maxScore: 10, weight: 0.2, description: "Audited, no admin keys, renounced ownership" },
     { name: "Holder Concentration", score: 6, maxScore: 10, weight: 0.2, description: "Top 10 holders control 44.4% — moderate" },
-    { name: "Trading Volume", score: 8, maxScore: 10, weight: 0.15, description: "24h volume is 5.1% of market cap — active" },
+    { name: "Trading Volume", score: 3, maxScore: 10, weight: 0.15, description: "24h volume is 0.37% of market cap — low" },
     { name: "Price Volatility", score: 7, maxScore: 10, weight: 0.1, description: "30-day standard deviation within normal range" },
     { name: "Smart Money Flow", score: 6, maxScore: 10, weight: 0.1, description: "Whale wallets showing slight accumulation" },
   ],

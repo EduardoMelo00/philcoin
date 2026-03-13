@@ -3,6 +3,9 @@ export interface TokenPrice {
   usd_24h_change: number;
   usd_market_cap: number;
   usd_24h_vol: number;
+  circulating_supply?: number;
+  total_supply?: number;
+  fully_diluted_market_cap?: number;
 }
 
 export interface TokenInfo {

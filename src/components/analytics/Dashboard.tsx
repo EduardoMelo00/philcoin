@@ -16,6 +16,7 @@ import { useTransactions } from "@/hooks/useTransactions";
 import { useLastUpdated } from "@/hooks/useLastUpdated";
 import { computeRiskScore } from "@/lib/risk-engine";
 import { computeRecommendations } from "@/lib/recommendation-engine";
+import type { TokenInfo } from "@/types/analytics";
 import {
   mockTokenPrice,
   mockTokenInfo,
@@ -39,6 +40,12 @@ export default function Dashboard() {
   const liquidity = liquidityData ?? mockLiquidityData;
   const transactions = transactionData ?? mockTransactionData;
 
+  const tokenInfo: TokenInfo = {
+    ...mockTokenInfo,
+    totalSupply: price.total_supply && price.total_supply > 0 ? price.total_supply : mockTokenInfo.totalSupply,
+    circulatingSupply: price.circulating_supply && price.circulating_supply > 0 ? price.circulating_supply : mockTokenInfo.circulatingSupply,
+  };
+
   const riskData = computeRiskScore(holders, liquidity, transactions, price);
   const growthMetrics = mockGrowthMetrics;
   const recommendations = computeRecommendations(holders, liquidity, transactions, growthMetrics);
@@ -51,7 +58,7 @@ export default function Dashboard() {
 
       <main className="pt-14">
         <div className="max-w-[1440px] mx-auto px-4 md:px-5 lg:px-6 py-4 md:py-6 space-y-4 md:space-y-6">
-          <HeroMetrics price={price} tokenInfo={mockTokenInfo} />
+          <HeroMetrics price={price} tokenInfo={tokenInfo} />
 
           <HolderDistribution data={holders} />
 

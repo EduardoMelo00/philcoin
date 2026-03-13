@@ -15,6 +15,9 @@ async function fetchFromCMC(): Promise<TokenPrice> {
     usd_24h_change: data.percent_change_24h,
     usd_market_cap: data.market_cap,
     usd_24h_vol: data.volume_24h,
+    circulating_supply: data.circulating_supply,
+    total_supply: data.total_supply,
+    fully_diluted_market_cap: data.fully_diluted_market_cap,
   };
 }
 
