@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 
 const QUICKNODE_RPC = process.env.QUICKNODE_RPC || "https://sleek-late-fog.matic.quiknode.pro/b580892f638ecd34642256b68c6f2b1dacbb8ee2/";
+const ETHERSCAN_API_KEY = process.env.POLYGONSCAN_API_KEY || "6D3JVRZP4W8XT23G22V9FWDZNT2RT8KI2Y";
 const PHL_CONTRACT = "0x24c80D7F032Bc8D308F10d59e20d5a65b90b7334";
 const TOTAL_SUPPLY = 5_000_000_000;
 const BALANCE_OF_SELECTOR = "0x70a08231";
@@ -23,7 +24,7 @@ const KNOWN_WALLETS: Record<string, { label: HolderLabel; name: string }> = {
   "0x0c28a26303c292fede3b22451f1a1b9c7a1b4209": { label: "Treasury", name: "Gnosis Safe" },
 };
 
-const TOP_ADDRESSES = [
+const BASELINE_ADDRESSES = [
   "0x633a94b6e161a43f3fd8fe8874eb2f1912f250df",
   "0x72349caff75f97e4189f00d2fdbe1e50efb18367",
   "0x0d7a457e15dc3c12005c414995155ce7ca2e87ab",
@@ -76,6 +77,31 @@ const TOP_ADDRESSES = [
   "0x7b39c6087dd2b191e711f202c430e9ba2c2b7f71",
 ];
 
+async function discoverAddressesFromTransfers(): Promise<string[]> {
+  const addresses = new Set<string>();
+
+  for (let page = 1; page <= 10; page++) {
+    const url = `https://api.etherscan.io/v2/api?chainid=137&module=account&action=tokentx&contractaddress=${PHL_CONTRACT}&page=${page}&offset=10000&sort=asc&apikey=${ETHERSCAN_API_KEY}`;
+    const response = await fetch(url, { next: { revalidate: 3600 } });
+    const data = await response.json();
+
+    if (data.status !== "1" || !Array.isArray(data.result) || data.result.length === 0) break;
+
+    for (const tx of data.result) {
+      if (tx.to && tx.to !== "0x0000000000000000000000000000000000000000") {
+        addresses.add(tx.to.toLowerCase());
+      }
+      if (tx.from && tx.from !== "0x0000000000000000000000000000000000000000") {
+        addresses.add(tx.from.toLowerCase());
+      }
+    }
+
+    if (data.result.length < 10000) break;
+  }
+
+  return Array.from(addresses);
+}
+
 async function batchBalanceOf(addresses: string[]): Promise<Map<string, number>> {
   const balances = new Map<string, number>();
   const batchSize = 50;
@@ -119,7 +145,14 @@ async function batchBalanceOf(addresses: string[]): Promise<Map<string, number>>
 
 export async function GET() {
   try {
-    const balances = await batchBalanceOf(TOP_ADDRESSES);
+    const discoveredAddresses = await discoverAddressesFromTransfers();
+
+    const allAddresses = new Set(BASELINE_ADDRESSES.map((a) => a.toLowerCase()));
+    for (const addr of discoveredAddresses) {
+      allAddresses.add(addr);
+    }
+
+    const balances = await batchBalanceOf(Array.from(allAddresses));
 
     const holders = Array.from(balances.entries())
       .map(([address, holdings]) => {
@@ -138,9 +171,10 @@ export async function GET() {
 
     holders.forEach((h, i) => (h.rank = i + 1));
 
+    const top50 = holders.slice(0, 50);
     const top10 = holders.slice(0, 10);
     const top10Pct = top10.reduce((sum, h) => sum + h.percentage, 0);
-    const hhi = holders.reduce(
+    const hhi = top50.reduce(
       (sum, h) => sum + (h.percentage / 100) ** 2,
       0
     );
@@ -150,8 +184,8 @@ export async function GET() {
     else if (hhi > 0.05) concentrationLevel = "Medium";
 
     return NextResponse.json({
-      holders,
-      totalHolders: TOTAL_HOLDERS,
+      holders: top50,
+      totalHolders: Math.max(holders.length, TOTAL_HOLDERS),
       hhi: parseFloat(hhi.toFixed(4)),
       concentrationLevel,
       top10Percentage: parseFloat(top10Pct.toFixed(2)),
