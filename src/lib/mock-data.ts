@@ -29,8 +29,8 @@ export const mockTokenPrice: TokenPrice = {
 export const mockTokenInfo: TokenInfo = {
   name: "Philcoin",
   symbol: "PHL",
-  totalSupply: 10_000_000_000,
-  circulatingSupply: 7_200_000_000,
+  totalSupply: 5_000_000_000,
+  circulatingSupply: 3_600_000_000,
   decimals: 18,
   contractAddress: "0x24c80D7F032Bc8D308F10d59e20d5a65b90b7334",
 };
