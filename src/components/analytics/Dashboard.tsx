@@ -138,7 +138,7 @@ export default function Dashboard() {
           <footer className="py-6 flex flex-wrap items-center justify-center gap-4 text-[10px] text-text-muted">
             <span>Powered by Polygon</span>
             <span className="w-1 h-1 rounded-full bg-text-muted" />
-            <span>Data: CoinMarketCap, GeckoTerminal, MEXC, PolygonScan</span>
+            <span>Data: CoinMarketCap, Moralis, GeckoTerminal, MEXC</span>
             <span className="w-1 h-1 rounded-full bg-text-muted" />
             <span>Last full refresh: {secondsAgo < 120 ? "just now" : `${Math.floor(secondsAgo / 60)}m ago`}</span>
           </footer>
