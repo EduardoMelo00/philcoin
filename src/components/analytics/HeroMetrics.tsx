@@ -85,27 +85,10 @@ export default function HeroMetrics({ price, tokenInfo, totalHolders }: HeroMetr
         </span>
       </MetricCard>
 
-      <MetricCard
-        label="Supply"
-        delay={0.2}
-        className="lg:flex-1"
-        subDetail={`${formatLargeNumber(tokenInfo.circulatingSupply)} circulating`}
-      >
-        <span className="text-xl font-semibold text-text-primary leading-none font-mono">
-          {formatLargeNumber(tokenInfo.totalSupply)}
-        </span>
-        <div className="mt-2 h-1.5 rounded-full bg-elevated overflow-hidden">
-          <div
-            className="h-full rounded-full bg-accent-primary transition-all duration-500"
-            style={{ width: `${(tokenInfo.circulatingSupply / tokenInfo.totalSupply) * 100}%` }}
-          />
-        </div>
-      </MetricCard>
-
       {totalHolders !== undefined && (
         <MetricCard
           label="Active Wallets"
-          delay={0.25}
+          delay={0.2}
           className="lg:flex-1"
           subDetail="wallets holding PHL > 0"
         >
@@ -119,6 +102,23 @@ export default function HeroMetrics({ price, tokenInfo, totalHolders }: HeroMetr
           </div>
         </MetricCard>
       )}
+
+      <MetricCard
+        label="Supply"
+        delay={0.25}
+        className="lg:flex-1"
+        subDetail={`${formatLargeNumber(tokenInfo.circulatingSupply)} circulating`}
+      >
+        <span className="text-xl font-semibold text-text-primary leading-none font-mono">
+          {formatLargeNumber(tokenInfo.totalSupply)}
+        </span>
+        <div className="mt-2 h-1.5 rounded-full bg-elevated overflow-hidden">
+          <div
+            className="h-full rounded-full bg-accent-primary transition-all duration-500"
+            style={{ width: `${(tokenInfo.circulatingSupply / tokenInfo.totalSupply) * 100}%` }}
+          />
+        </div>
+      </MetricCard>
     </div>
   );
 }
