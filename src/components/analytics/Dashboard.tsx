@@ -118,7 +118,7 @@ export default function Dashboard() {
 
       <main className="pt-14">
         <div className="max-w-[1440px] mx-auto px-4 md:px-5 lg:px-6 py-4 md:py-6 space-y-4 md:space-y-6">
-          <HeroMetrics price={price} tokenInfo={tokenInfo} />
+          <HeroMetrics price={price} tokenInfo={tokenInfo} totalHolders={holders.totalHolders} />
 
           <HolderDistribution data={holders} />
 
