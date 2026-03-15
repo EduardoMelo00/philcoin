@@ -5,6 +5,9 @@ const PHL_CONTRACT = "0x24c80D7F032Bc8D308F10d59e20d5a65b90b7334";
 const TOTAL_SUPPLY = 5_000_000_000;
 const MORALIS_BASE = "https://deep-index.moralis.io/api/v2.2";
 
+const TOP_HOLDERS_TTL = 1800_000;
+const TOTAL_COUNT_TTL = 21600_000;
+
 type HolderLabel = "Treasury" | "Team" | "Exchange" | "LP" | "Community" | "Unknown";
 
 const KNOWN_WALLETS: Record<string, { label: HolderLabel; name: string }> = {
@@ -41,20 +44,20 @@ interface MoralisOwnersResponse {
   result: MoralisOwner[];
 }
 
-async function fetchMoralisOwners(cursor?: string): Promise<MoralisOwnersResponse> {
+let topHoldersCache: { data: ReturnType<typeof mapOwner>[]; timestamp: number } | null = null;
+let totalCountCache: { count: number; timestamp: number } | null = null;
+
+async function fetchMoralisPage(cursor?: string, limit = 100): Promise<MoralisOwnersResponse> {
   const params = new URLSearchParams({
     chain: "polygon",
     order: "DESC",
-    limit: "100",
+    limit: String(limit),
   });
   if (cursor) params.set("cursor", cursor);
 
   const response = await fetch(
     `${MORALIS_BASE}/erc20/${PHL_CONTRACT}/owners?${params}`,
-    {
-      headers: { "X-API-Key": MORALIS_API_KEY },
-      next: { revalidate: 1800 },
-    }
+    { headers: { "X-API-Key": MORALIS_API_KEY } }
   );
 
   if (!response.ok) throw new Error(`Moralis API error: ${response.status}`);
@@ -82,52 +85,70 @@ function resolveLabel(owner: MoralisOwner): { label: HolderLabel; name?: string 
   return { label: "Unknown" };
 }
 
+function mapOwner(owner: MoralisOwner) {
+  const resolved = resolveLabel(owner);
+  const holdings = Math.round(parseFloat(owner.balance_formatted));
+  return {
+    rank: 0,
+    address: owner.owner_address.toLowerCase(),
+    holdings,
+    percentage: parseFloat(((holdings / TOTAL_SUPPLY) * 100).toFixed(4)),
+    label: resolved.label,
+    exchangeName: resolved.name,
+    isContract: owner.is_contract,
+    usdValue: owner.usd_value ? parseFloat(owner.usd_value) : undefined,
+  };
+}
+
+async function getTopHolders() {
+  const now = Date.now();
+  if (topHoldersCache && now - topHoldersCache.timestamp < TOP_HOLDERS_TTL) {
+    return topHoldersCache.data;
+  }
+
+  const data = await fetchMoralisPage(undefined, 100);
+  const holders = data.result
+    .filter((o) => parseFloat(o.balance_formatted) > 0)
+    .map(mapOwner)
+    .sort((a, b) => b.holdings - a.holdings);
+
+  holders.forEach((h, i) => (h.rank = i + 1));
+  topHoldersCache = { data: holders, timestamp: now };
+  return holders;
+}
+
+async function getTotalHolderCount(): Promise<number> {
+  const now = Date.now();
+  if (totalCountCache && now - totalCountCache.timestamp < TOTAL_COUNT_TTL) {
+    return totalCountCache.count;
+  }
+
+  let count = 0;
+  let cursor: string | undefined;
+  let pages = 0;
+
+  do {
+    const data = await fetchMoralisPage(cursor);
+    count += data.result.filter((o) => parseFloat(o.balance_formatted) > 0).length;
+    cursor = data.cursor ?? undefined;
+    pages++;
+  } while (cursor && pages < 200);
+
+  totalCountCache = { count, timestamp: now };
+  return count;
+}
+
 export async function GET() {
   try {
-    const allOwners: MoralisOwner[] = [];
-    let cursor: string | undefined;
-    let pages = 0;
-    const MAX_PAGES = 100;
-
-    do {
-      const data = await fetchMoralisOwners(cursor);
-      allOwners.push(...data.result);
-      cursor = data.cursor ?? undefined;
-      pages++;
-    } while (cursor && pages < MAX_PAGES);
-
-    const holders = allOwners
-      .filter((o) => {
-        const balance = parseFloat(o.balance_formatted);
-        return balance > 0;
-      })
-      .map((owner, index) => {
-        const resolved = resolveLabel(owner);
-        const holdings = Math.round(parseFloat(owner.balance_formatted));
-        return {
-          rank: index + 1,
-          address: owner.owner_address.toLowerCase(),
-          holdings,
-          percentage: parseFloat(((holdings / TOTAL_SUPPLY) * 100).toFixed(4)),
-          label: resolved.label,
-          exchangeName: resolved.name,
-          isContract: owner.is_contract,
-          usdValue: owner.usd_value ? parseFloat(owner.usd_value) : undefined,
-        };
-      })
-      .sort((a, b) => b.holdings - a.holdings);
-
-    holders.forEach((h, i) => (h.rank = i + 1));
-
-    const totalHolders = holders.length;
+    const [holders, totalHolders] = await Promise.all([
+      getTopHolders(),
+      getTotalHolderCount(),
+    ]);
 
     const top50 = holders.slice(0, 50);
     const top10 = holders.slice(0, 10);
     const top10Pct = top10.reduce((sum, h) => sum + h.percentage, 0);
-    const hhi = top50.reduce(
-      (sum, h) => sum + (h.percentage / 100) ** 2,
-      0
-    );
+    const hhi = top50.reduce((sum, h) => sum + (h.percentage / 100) ** 2, 0);
 
     let concentrationLevel: "Low" | "Medium" | "High" = "Low";
     if (hhi > 0.1) concentrationLevel = "High";
@@ -142,6 +163,20 @@ export async function GET() {
     });
   } catch (error) {
     console.error("Holder fetch error:", error);
+
+    if (topHoldersCache) {
+      const holders = topHoldersCache.data;
+      const top50 = holders.slice(0, 50);
+      const hhi = top50.reduce((sum, h) => sum + (h.percentage / 100) ** 2, 0);
+      return NextResponse.json({
+        holders: top50,
+        totalHolders: totalCountCache?.count ?? holders.length,
+        hhi: parseFloat(hhi.toFixed(4)),
+        concentrationLevel: hhi > 0.1 ? "High" : hhi > 0.05 ? "Medium" : "Low",
+        top10Percentage: parseFloat(holders.slice(0, 10).reduce((s, h) => s + h.percentage, 0).toFixed(2)),
+      });
+    }
+
     return NextResponse.json(
       { error: "Failed to fetch holder data" },
       { status: 500 },
