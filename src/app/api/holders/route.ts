@@ -5,8 +5,8 @@ const PHL_CONTRACT = "0x24c80D7F032Bc8D308F10d59e20d5a65b90b7334";
 const TOTAL_SUPPLY = 5_000_000_000;
 const MORALIS_BASE = "https://deep-index.moralis.io/api/v2.2";
 
-const TOP_HOLDERS_TTL = 1800_000;
-const TOTAL_COUNT_TTL = 21600_000;
+const TOP_HOLDERS_TTL = 3600_000;
+const TOTAL_COUNT_TTL = 86400_000;
 
 type HolderLabel = "Treasury" | "Team" | "Exchange" | "LP" | "Community" | "Unknown";
 
