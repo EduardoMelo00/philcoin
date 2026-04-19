@@ -12,63 +12,9 @@ import {
 } from "lightweight-charts";
 import { motion } from "framer-motion";
 import type { TimeRange } from "@/types/analytics";
+import { usePriceCandles, type PriceCandle } from "@/hooks/usePriceCandles";
 
 const TIME_RANGES: TimeRange[] = ["1D", "7D", "1M", "3M", "1Y", "ALL"];
-
-const TIME_RANGE_DAYS: Record<TimeRange, number> = {
-  "1D": 1,
-  "7D": 7,
-  "1M": 30,
-  "3M": 90,
-  "1Y": 365,
-  ALL: 1825,
-};
-
-interface CandleData {
-  time: number;
-  open: number;
-  high: number;
-  low: number;
-  close: number;
-  volume: number;
-}
-
-function generateCandlestickData(days: number, basePrice: number): CandleData[] {
-  const candles: CandleData[] = [];
-  const now = Math.floor(Date.now() / 1000);
-  const intervalSeconds = days <= 1 ? 300 : days <= 7 ? 3600 : 86400;
-  const totalCandles = Math.floor((days * 86400) / intervalSeconds);
-  let price = basePrice * (0.7 + Math.random() * 0.3);
-
-  for (let i = 0; i < totalCandles; i++) {
-    const volatility = 0.015 + Math.random() * 0.035;
-    const trend = 0.0001;
-    const change = (Math.random() - 0.48) * volatility + trend;
-
-    const open = price;
-    const close = Math.max(price * (1 + change), basePrice * 0.1);
-    const wickUp = Math.random() * Math.abs(close - open) * 1.5;
-    const wickDown = Math.random() * Math.abs(close - open) * 1.5;
-    const high = Math.max(open, close) + wickUp;
-    const low = Math.min(open, close) - wickDown;
-
-    const time = now - (totalCandles - i) * intervalSeconds;
-    const volume = 500_000 + Math.random() * 2_000_000;
-
-    candles.push({
-      time,
-      open,
-      high: Math.max(high, open, close),
-      low: Math.max(Math.min(low, open, close), basePrice * 0.05),
-      close,
-      volume,
-    });
-
-    price = close;
-  }
-
-  return candles;
-}
 
 export default function TradingChart() {
   const [activeRange, setActiveRange] = useState<TimeRange>("7D");
@@ -76,9 +22,13 @@ export default function TradingChart() {
   const chartRef = useRef<IChartApi | null>(null);
   const candleSeriesRef = useRef<ISeriesApi<"Candlestick"> | null>(null);
   const volumeSeriesRef = useRef<ISeriesApi<"Histogram"> | null>(null);
-  const [currentCandle, setCurrentCandle] = useState<CandleData | null>(null);
+  const [currentCandle, setCurrentCandle] = useState<PriceCandle | null>(null);
 
-  const initChart = useCallback(() => {
+  const { data, isLoading, isError } = usePriceCandles(activeRange);
+  const candles = data?.candles ?? [];
+  const isStale = data?.stale === true;
+
+  const renderChart = useCallback((candleData: PriceCandle[]) => {
     if (!chartContainerRef.current) return;
 
     try {
@@ -149,43 +99,40 @@ export default function TradingChart() {
       scaleMargins: { top: 0.8, bottom: 0 },
     });
 
-    const days = TIME_RANGE_DAYS[activeRange];
-    const candles = generateCandlestickData(days, 0.00234);
-
     candleSeries.setData(
-      candles.map((c) => ({
+      candleData.map((c) => ({
         time: c.time as never,
         open: c.open,
         high: c.high,
         low: c.low,
         close: c.close,
-      }))
+      })),
     );
 
     volumeSeries.setData(
-      candles.map((c) => ({
+      candleData.map((c) => ({
         time: c.time as never,
         value: c.volume,
         color: c.close >= c.open ? "rgba(34, 197, 94, 0.2)" : "rgba(239, 68, 68, 0.2)",
-      }))
+      })),
     );
 
     chart.timeScale().fitContent();
 
-    if (candles.length > 0) {
-      setCurrentCandle(candles[candles.length - 1]);
+    if (candleData.length > 0) {
+      setCurrentCandle(candleData[candleData.length - 1]);
     }
 
     chart.subscribeCrosshairMove((param) => {
       if (!param.time || !param.seriesData) return;
-      const candleData = param.seriesData.get(candleSeries);
-      if (candleData && "open" in candleData) {
+      const hovered = param.seriesData.get(candleSeries);
+      if (hovered && "open" in hovered) {
         setCurrentCandle({
           time: param.time as number,
-          open: candleData.open,
-          high: candleData.high,
-          low: candleData.low,
-          close: candleData.close,
+          open: hovered.open,
+          high: hovered.high,
+          low: hovered.low,
+          close: hovered.close,
           volume: 0,
         });
       }
@@ -212,11 +159,13 @@ export default function TradingChart() {
   }, [activeRange]);
 
   useEffect(() => {
-    const cleanup = initChart();
+    if (candles.length === 0) return;
+    const cleanup = renderChart(candles);
     return () => cleanup?.();
-  }, [initChart]);
+  }, [renderChart, candles]);
 
   const bullish = currentCandle ? currentCandle.close >= currentCandle.open : true;
+  const showEmptyState = !isLoading && candles.length === 0;
 
   return (
     <motion.div
@@ -230,8 +179,10 @@ export default function TradingChart() {
         <div className="flex items-center gap-3">
           <h2 className="text-xl font-semibold text-text-primary">Trading View</h2>
           <div className="flex items-center gap-1.5 px-2 py-0.5 rounded bg-elevated">
-            <div className="w-1.5 h-1.5 rounded-full bg-accent-bullish animate-pulse" />
-            <span className="text-[10px] text-text-tertiary font-medium uppercase tracking-wider">Live</span>
+            <div className={`w-1.5 h-1.5 rounded-full ${isStale ? "bg-amber-400" : "bg-accent-bullish animate-pulse"}`} />
+            <span className="text-[10px] text-text-tertiary font-medium uppercase tracking-wider">
+              {isStale ? "Cached" : "Live"}
+            </span>
           </div>
         </div>
 
@@ -269,11 +220,25 @@ export default function TradingChart() {
         </div>
       </div>
 
-      <div
-        ref={chartContainerRef}
-        className="w-full h-[300px] md:h-[400px] lg:h-[520px]"
-        aria-label="Candlestick trading chart for PHILCOIN"
-      />
+      <div className="relative">
+        <div
+          ref={chartContainerRef}
+          className="w-full h-[300px] md:h-[400px] lg:h-[520px]"
+          aria-label="Candlestick trading chart for PHILCOIN"
+        />
+
+        {isLoading && (
+          <div className="absolute inset-0 flex items-center justify-center text-xs text-text-tertiary">
+            Loading price history from CoinGecko…
+          </div>
+        )}
+
+        {showEmptyState && (
+          <div className="absolute inset-0 flex items-center justify-center text-xs text-text-tertiary">
+            {isError ? "Price history unavailable right now." : "No price data for this range."}
+          </div>
+        )}
+      </div>
     </motion.div>
   );
 }
