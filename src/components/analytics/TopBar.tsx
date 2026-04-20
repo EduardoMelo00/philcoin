@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import PhilLogo from "./PhilLogo";
 import { getTimeAgo } from "@/lib/formatters";
 
@@ -16,8 +17,8 @@ export default function TopBar({ secondsAgo, isLive }: TopBarProps) {
       backgroundColor: "var(--bg-glass)",
       borderColor: "var(--border-subtle)",
     }}>
-      <div className="max-w-[1440px] mx-auto h-full px-4 md:px-6 flex items-center justify-between">
-        <div className="flex items-center gap-3">
+      <div className="max-w-[1440px] mx-auto h-full px-4 md:px-6 flex items-center justify-between gap-4">
+        <Link href="/" className="flex items-center gap-3">
           <PhilLogo size={28} />
           <span className="hidden md:inline text-text-primary font-semibold text-base tracking-tight font-display">
             PHILCOIN Analytics
@@ -27,16 +28,22 @@ export default function TopBar({ secondsAgo, isLive }: TopBarProps) {
             <div className="w-2 h-2 rounded-full bg-purple-500" />
             <span className="text-xs text-text-tertiary font-medium">Polygon</span>
           </div>
-        </div>
+        </Link>
+
+        <nav className="flex gap-1 text-sm">
+          <Link href="/" className="px-3 py-1.5 rounded-md text-text-primary bg-accent-phil/10 border border-accent-phil/30">Overview</Link>
+          <Link href="/holders" className="px-3 py-1.5 rounded-md text-text-tertiary hover:text-text-primary hover:bg-white/5 transition">Holders</Link>
+          <Link href="/contracts" className="px-3 py-1.5 rounded-md text-text-tertiary hover:text-text-primary hover:bg-white/5 transition">Contracts</Link>
+        </nav>
 
         <div className="flex items-center gap-4">
           <div className="flex items-center gap-2">
             <div className={`w-2 h-2 rounded-full ${isLive ? "bg-accent-bullish animate-pulse-live" : "bg-accent-warning"}`} />
-            <span className={`text-[10px] uppercase tracking-[0.1em] font-medium ${isLive ? "text-accent-bullish" : "text-accent-warning"}`}>
+            <span className={`hidden sm:inline text-[10px] uppercase tracking-[0.1em] font-medium ${isLive ? "text-accent-bullish" : "text-accent-warning"}`}>
               {isLive ? "LIVE" : "STALE"}
             </span>
           </div>
-          <span className={`text-xs font-mono ${stale ? "text-accent-warning" : "text-text-tertiary"}`}>
+          <span className={`hidden sm:inline text-xs font-mono ${stale ? "text-accent-warning" : "text-text-tertiary"}`}>
             {secondsAgo === 0 ? "Just now" : getTimeAgo(secondsAgo)}
           </span>
         </div>
