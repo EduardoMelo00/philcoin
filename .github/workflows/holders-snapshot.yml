@@ -1,0 +1,50 @@
+name: PHL Holders Snapshot
+
+on:
+  schedule:
+    - cron: "0 4 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: holders-snapshot
+  cancel-in-progress: false
+
+jobs:
+  index:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - name: Install deps
+        run: npm ci
+
+      - name: Run PHL holder indexer
+        env:
+          QUICKNODE_POLYGON_RPC: ${{ secrets.QUICKNODE_POLYGON_RPC }}
+        run: node scripts/index-holders.mjs
+
+      - name: Commit snapshot if changed
+        run: |
+          git config user.name "philcoin-holders-bot"
+          git config user.email "holders-bot@philcoin.io"
+          if git diff --quiet -- public/holders.json public/holders.csv; then
+            echo "No changes in snapshot, skipping commit."
+            exit 0
+          fi
+          TOTAL=$(node -e "const d=require('./public/holders.json'); console.log(d.total)")
+          LAST=$(node -e "const d=require('./public/holders.json'); console.log(d.lastBlock)")
+          git add public/holders.json public/holders.csv
+          git commit -m "chore(holders): snapshot $TOTAL holders @ block $LAST"
+          git push

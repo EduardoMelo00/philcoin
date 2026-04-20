@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import PhilLogo from "./PhilLogo";
+import { useTokenPrice } from "@/hooks/useTokenPrice";
 import { formatCompactNumber, formatCurrency, truncateAddress } from "@/lib/formatters";
 
 type HolderLabel = "Treasury" | "Team" | "Exchange" | "LP" | "Community" | "Unknown";
@@ -15,14 +16,14 @@ interface Holder {
   label: HolderLabel;
   entityName?: string;
   isContract: boolean;
-  usdValue?: number;
 }
 
 interface HoldersResponse {
   total: number;
   generatedAt: string;
+  lastBlock?: number;
+  source?: string;
   holders: Holder[];
-  stale?: boolean;
 }
 
 const PAGE_SIZE = 50;
@@ -43,17 +44,18 @@ export default function HoldersView() {
   const [query, setQuery] = useState("");
   const [labelFilter, setLabelFilter] = useState<HolderLabel | "All">("All");
   const [page, setPage] = useState(1);
+  const { data: priceData } = useTokenPrice();
+  const phlPrice = priceData?.usd ?? 0;
 
   useEffect(() => {
     let mounted = true;
-    fetch("/api/holders/all")
-      .then((r) => r.json())
-      .then((d) => {
-        if (!mounted) return;
-        if (d.error) setError(d.error);
-        else setData(d);
+    fetch("/holders.json", { cache: "no-cache" })
+      .then((r) => {
+        if (!r.ok) throw new Error(`Snapshot not found (HTTP ${r.status}). Indexer may not have run yet.`);
+        return r.json();
       })
-      .catch((e) => mounted && setError(String(e)))
+      .then((d: HoldersResponse) => { if (mounted) setData(d); })
+      .catch((e) => mounted && setError(e instanceof Error ? e.message : String(e)))
       .finally(() => mounted && setLoading(false));
     return () => { mounted = false; };
   }, []);
@@ -78,11 +80,12 @@ export default function HoldersView() {
 
   const stats = useMemo(() => {
     if (!data) return null;
-    const totalUsd = data.holders.reduce((s, h) => s + (h.usdValue ?? 0), 0);
+    const totalHoldings = data.holders.reduce((s, h) => s + h.holdings, 0);
+    const totalUsd = totalHoldings * phlPrice;
     const top10 = data.holders.slice(0, 10).reduce((s, h) => s + h.percentage, 0);
     const exchanges = data.holders.filter((h) => h.label === "Exchange").reduce((s, h) => s + h.holdings, 0);
     return { totalUsd, top10Pct: top10, exchangeSupply: exchanges };
-  }, [data]);
+  }, [data, phlPrice]);
 
   return (
     <main className="min-h-screen pb-20" style={{ backgroundColor: "var(--bg-void)" }}>
@@ -114,13 +117,12 @@ export default function HoldersView() {
             </h1>
             <p className="text-text-secondary mt-1">
               Complete on-chain list of wallets holding PHILCOIN on Polygon.
-              {data && <> Last indexed {new Date(data.generatedAt).toLocaleString()}.</>}
-              {data?.stale && <span className="ml-2 text-accent-warning">(cached fallback)</span>}
+              {data && <> Snapshot {new Date(data.generatedAt).toLocaleString()}{data.lastBlock ? ` · block ${data.lastBlock.toLocaleString()}` : ""}.</>}
             </p>
           </div>
 
           <a
-            href="/api/holders/all?format=csv"
+            href="/holders.csv"
             className="inline-flex items-center gap-2 px-4 py-2.5 rounded-lg border border-accent-phil/40 bg-accent-phil/10 text-accent-phil hover:bg-accent-phil/20 hover:border-accent-phil transition font-medium text-sm"
             download
           >
@@ -224,7 +226,7 @@ export default function HoldersView() {
                           {h.percentage.toFixed(4)}%
                         </td>
                         <td className="py-3 px-4 text-right font-mono text-text-secondary">
-                          {h.usdValue ? formatCurrency(h.usdValue) : "—"}
+                          {phlPrice > 0 ? formatCurrency(h.holdings * phlPrice) : "—"}
                         </td>
                       </tr>
                     ))}
