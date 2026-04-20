@@ -2,7 +2,7 @@
 
 import { useMemo, useRef, useState } from "react";
 import { Canvas, useFrame } from "@react-three/fiber";
-import { Html, Line, Stars } from "@react-three/drei";
+import { Html, Line, OrbitControls, Stars } from "@react-three/drei";
 import * as THREE from "three";
 import {
   CATEGORY_META,
@@ -211,7 +211,8 @@ function Satellite({
         center
         distanceFactor={9}
         zIndexRange={[0, 10]}
-        style={{ pointerEvents: hovered || isSelected ? "auto" : "auto" }}
+        style={{ pointerEvents: "none" }}
+        wrapperClass="satellite-html"
       >
         <SatelliteCard
           contract={contract}
@@ -271,7 +272,7 @@ function SatelliteCard({
       style={{
         transform: "translate(14px, -50%)",
         minWidth: 200,
-        pointerEvents: "auto",
+        pointerEvents: "none",
       }}
     >
       <div
@@ -280,6 +281,7 @@ function SatelliteCard({
           background: "rgba(5, 5, 12, 0.78)",
           border: `1px solid ${orbitColor}55`,
           boxShadow: `0 0 14px ${orbitColor}22`,
+          pointerEvents: "none",
         }}
       >
         <span
@@ -287,9 +289,10 @@ function SatelliteCard({
           style={{ backgroundColor: statusColor, boxShadow: `0 0 6px ${statusColor}` }}
         />
         <button
+          onPointerDown={(e) => e.stopPropagation()}
           onClick={(e) => { e.stopPropagation(); onSelect(contract); }}
-          className="text-white hover:text-white transition whitespace-nowrap font-semibold text-[11px]"
-          style={{ color: "#f1f5f9" }}
+          className="text-white hover:text-white transition whitespace-nowrap font-semibold text-[11px] cursor-pointer"
+          style={{ color: "#f1f5f9", pointerEvents: "auto" }}
         >
           {contract.shortName}
         </button>
@@ -300,8 +303,10 @@ function SatelliteCard({
               {contract.address.slice(0, 6)}…{contract.address.slice(-4)}
             </span>
             <button
+              onPointerDown={(e) => e.stopPropagation()}
               onClick={copy}
-              className="ml-0.5 w-5 h-5 flex items-center justify-center rounded hover:bg-white/10 transition"
+              className="ml-0.5 w-5 h-5 flex items-center justify-center rounded hover:bg-white/10 transition cursor-pointer"
+              style={{ pointerEvents: "auto" }}
               title={copied ? "Copied!" : "Copy address"}
             >
               {copied ? (
@@ -375,17 +380,6 @@ function LightningArcs() {
   );
 }
 
-function ParallaxCamera() {
-  useFrame((state) => {
-    const cam = state.camera;
-    const targetX = state.pointer.x * 0.6;
-    const targetY = state.pointer.y * 0.35;
-    cam.position.x += (targetX - cam.position.x) * 0.04;
-    cam.position.y += (-targetY - cam.position.y) * 0.04;
-    cam.lookAt(0, 0, 0);
-  });
-  return null;
-}
 
 export default function EcosystemGlobe({
   onSelect,
@@ -405,12 +399,12 @@ export default function EcosystemGlobe({
       <div className="ecosystem-globe-bg" aria-hidden />
       <div className="ecosystem-globe-scanlines" aria-hidden />
 
-      <div className="absolute top-4 left-4 z-10 font-mono text-[10px] tracking-[0.3em] uppercase">
+      <div className="absolute top-4 left-4 z-10 font-mono text-[10px] tracking-[0.3em] uppercase pointer-events-none">
         <div className="text-cyan-400/80">◢ PHILCOIN ECOSYSTEM ORBIT</div>
-        <div className="text-white/40 mt-0.5">interactive · drag to orbit, hover nodes</div>
+        <div className="text-white/40 mt-0.5">drag to rotate · scroll to zoom · click node for details</div>
       </div>
 
-      <div className="absolute top-4 right-4 z-10 space-y-1 font-mono text-[10px] tracking-[0.2em]">
+      <div className="absolute top-4 right-4 z-10 space-y-1 font-mono text-[10px] tracking-[0.2em] pointer-events-none">
         {CATEGORY_ORDER.map((c) => (
           <div key={c} className="flex items-center justify-end gap-2">
             <span className="text-white/55">{CATEGORY_META[c].label}</span>
@@ -456,7 +450,19 @@ export default function EcosystemGlobe({
 
         <Stars radius={40} depth={60} count={1400} factor={2.5} saturation={0} fade speed={0.4} />
 
-        <ParallaxCamera />
+        <OrbitControls
+          enablePan={false}
+          enableZoom
+          enableDamping
+          dampingFactor={0.08}
+          rotateSpeed={0.6}
+          zoomSpeed={0.6}
+          minDistance={5}
+          maxDistance={16}
+          autoRotate
+          autoRotateSpeed={0.35}
+          makeDefault
+        />
         <WireframeCore />
         <EquatorRings />
         <LightningArcs />
