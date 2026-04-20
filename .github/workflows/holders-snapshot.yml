@@ -32,7 +32,7 @@ jobs:
 
       - name: Run PHL holder indexer
         env:
-          QUICKNODE_POLYGON_RPC: ${{ secrets.QUICKNODE_POLYGON_RPC }}
+          MORALIS_API_KEY: ${{ secrets.MORALIS_API_KEY }}
         run: node scripts/index-holders.mjs
 
       - name: Commit snapshot if changed

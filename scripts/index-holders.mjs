@@ -1,38 +1,29 @@
 #!/usr/bin/env node
 /**
- * PHL Holder Indexer.
- * Scans Transfer events via eth_getLogs, snapshots balances via Multicall3, writes
- * public/holders.json and public/holders.csv.
+ * PHL Holder Snapshot — uses Moralis's pre-built holder index.
+ * Runs once per day (via GitHub Actions) and writes public/holders.json + .csv.
  *
- * Env: QUICKNODE_POLYGON_RPC (required)
+ * Env: MORALIS_API_KEY (required)
  */
 
 import fs from "node:fs/promises";
 import path from "node:path";
-import { createPublicClient, http, parseAbi, getAddress, formatUnits } from "viem";
-import { polygon } from "viem/chains";
 
-const RPC = process.env.QUICKNODE_POLYGON_RPC;
-if (!RPC) {
-  console.error("QUICKNODE_POLYGON_RPC env var is required");
+const API_KEY = process.env.MORALIS_API_KEY;
+if (!API_KEY) {
+  console.error("MORALIS_API_KEY env var is required");
   process.exit(1);
 }
 
 const PHL = "0x24c80D7F032Bc8D308F10d59e20d5a65b90b7334";
-const PHL_DEPLOY_BLOCK = 60934001n;
-const ZERO = "0x0000000000000000000000000000000000000000";
 const TOTAL_SUPPLY = 5_000_000_000;
-const LOG_RANGE = 10_000n;
-const MULTICALL_BATCH = 500;
+const MORALIS_BASE = "https://deep-index.moralis.io/api/v2.2";
+const PAGE_SIZE = 100;
+const MAX_PAGES = 300;
 
 const OUT_DIR = path.resolve("public");
 const JSON_PATH = path.join(OUT_DIR, "holders.json");
 const CSV_PATH = path.join(OUT_DIR, "holders.csv");
-
-const ERC20_ABI = parseAbi([
-  "function balanceOf(address) view returns (uint256)",
-  "event Transfer(address indexed from, address indexed to, uint256 value)",
-]);
 
 const KNOWN = {
   "0x633a94b6e161a43f3fd8fe8874eb2f1912f250df": ["Treasury", "Philanthropy Vesting"],
@@ -49,123 +40,63 @@ const KNOWN = {
   "0x0c28a26303c292fede3b22451f1a1b9c7a1b4209": ["Treasury", "Gnosis Safe"],
 };
 
-const client = createPublicClient({
-  chain: polygon,
-  transport: http(RPC, { batch: false, retryCount: 3, retryDelay: 800, timeout: 45_000 }),
-});
+async function fetchPage(cursor) {
+  const params = new URLSearchParams({
+    chain: "polygon",
+    order: "DESC",
+    limit: String(PAGE_SIZE),
+  });
+  if (cursor) params.set("cursor", cursor);
 
-const SCAN_CONCURRENCY = 8;
-
-async function scanTransfers(fromBlock, toBlock) {
-  const addresses = new Set();
-  let totalLogs = 0;
-  const totalRange = Number(toBlock - fromBlock);
-  console.log(`→ scanning Transfer logs ${fromBlock}..${toBlock} (concurrency ${SCAN_CONCURRENCY})`);
-
-  const ranges = [];
-  for (let start = fromBlock; start <= toBlock; start += LOG_RANGE) {
-    const end = start + LOG_RANGE - 1n > toBlock ? toBlock : start + LOG_RANGE - 1n;
-    ranges.push([start, end]);
-  }
-  console.log(`  ${ranges.length} block ranges to scan`);
-
-  let done = 0;
-  let lastLoggedPct = -1;
-  const startTs = Date.now();
-
-  for (let i = 0; i < ranges.length; i += SCAN_CONCURRENCY) {
-    const slice = ranges.slice(i, i + SCAN_CONCURRENCY);
-    const results = await Promise.all(slice.map(([s, e]) =>
-      client.getLogs({ address: PHL, event: ERC20_ABI[1], fromBlock: s, toBlock: e })
-    ));
-    for (const logs of results) {
-      for (const log of logs) {
-        if (log.args.from && log.args.from !== ZERO) addresses.add(log.args.from.toLowerCase());
-        if (log.args.to && log.args.to !== ZERO) addresses.add(log.args.to.toLowerCase());
-      }
-      totalLogs += logs.length;
-    }
-    done += slice.length;
-    const lastEnd = slice[slice.length - 1][1];
-    const pct = totalRange === 0 ? 100 : (Number(lastEnd - fromBlock) / totalRange) * 100;
-    const bucket = Math.floor(pct / 5) * 5;
-    if (bucket > lastLoggedPct || done === ranges.length) {
-      const elapsedSec = ((Date.now() - startTs) / 1000).toFixed(0);
-      console.log(`  ${pct.toFixed(1).padStart(5)}% · ${done}/${ranges.length} ranges · block ${lastEnd} · logs: ${totalLogs} · candidates: ${addresses.size} · ${elapsedSec}s`);
-      lastLoggedPct = bucket;
+  let attempt = 0;
+  while (true) {
+    try {
+      const res = await fetch(`${MORALIS_BASE}/erc20/${PHL}/owners?${params}`, {
+        headers: { "X-API-Key": API_KEY, Accept: "application/json" },
+      });
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      return res.json();
+    } catch (err) {
+      attempt++;
+      if (attempt >= 4) throw err;
+      const backoff = 800 * Math.pow(2, attempt - 1);
+      console.warn(`  retry ${attempt} after ${backoff}ms: ${err.message}`);
+      await new Promise((r) => setTimeout(r, backoff));
     }
   }
-
-  console.log(`  total events: ${totalLogs}, unique candidates: ${addresses.size}`);
-  return addresses;
 }
 
-async function multicallBalances(addresses) {
-  console.log(`→ multicall balanceOf × ${addresses.length}`);
-  const balances = new Map();
+function resolveLabel(owner) {
+  const known = KNOWN[owner.owner_address.toLowerCase()];
+  if (known) return { label: known[0], name: known[1] };
 
-  for (let i = 0; i < addresses.length; i += MULTICALL_BATCH) {
-    const batch = addresses.slice(i, i + MULTICALL_BATCH);
-    const results = await client.multicall({
-      allowFailure: true,
-      contracts: batch.map((addr) => ({
-        address: PHL,
-        abi: ERC20_ABI,
-        functionName: "balanceOf",
-        args: [getAddress(addr)],
-      })),
-    });
-
-    for (let j = 0; j < batch.length; j++) {
-      const r = results[j];
-      if (r.status === "success" && r.result && r.result > 0n) {
-        balances.set(batch[j], r.result);
-      }
-    }
-
-    const done = Math.min(i + MULTICALL_BATCH, addresses.length);
-    console.log(`  ${done}/${addresses.length} · holders > 0: ${balances.size}`);
-  }
-  return balances;
-}
-
-async function detectContracts(addresses) {
-  console.log(`→ detecting contract addresses via eth_getCode`);
-  const contracts = new Set();
-  const CONCURRENCY = 25;
-  for (let i = 0; i < addresses.length; i += CONCURRENCY) {
-    const batch = addresses.slice(i, i + CONCURRENCY);
-    await Promise.all(batch.map(async (addr) => {
-      const code = await client.getCode({ address: getAddress(addr) });
-      if (code && code !== "0x") contracts.add(addr);
-    }));
-    const done = Math.min(i + CONCURRENCY, addresses.length);
-    if (done % 500 === 0 || done === addresses.length) {
-      console.log(`  ${done}/${addresses.length} · contracts: ${contracts.size}`);
+  if (owner.entity) {
+    const low = owner.entity.toLowerCase();
+    if (["bitmart", "mexc", "binance", "kucoin", "gate", "huobi", "coinbase"].some((x) => low.includes(x))) {
+      return { label: "Exchange", name: owner.entity };
     }
   }
-  return contracts;
+  if (owner.owner_address_label) {
+    const low = owner.owner_address_label.toLowerCase();
+    if (low.includes("exchange") || low.includes("hot wallet")) {
+      return { label: "Exchange", name: owner.owner_address_label };
+    }
+  }
+  return { label: "Unknown" };
 }
 
-function buildHolders(balances, contracts) {
-  const list = [];
-  for (const [addr, bal] of balances) {
-    const human = parseFloat(formatUnits(bal, 18));
-    const holdings = Math.round(human);
-    const pct = (human / TOTAL_SUPPLY) * 100;
-    const [label, name] = KNOWN[addr] ?? ["Unknown", undefined];
-    list.push({
-      address: addr,
-      holdings,
-      percentage: parseFloat(pct.toFixed(6)),
-      label,
-      entityName: name,
-      isContract: contracts.has(addr),
-    });
-  }
-  list.sort((a, b) => b.holdings - a.holdings);
-  list.forEach((h, i) => { h.rank = i + 1; });
-  return list;
+function mapOwner(owner) {
+  const { label, name } = resolveLabel(owner);
+  const holdings = Math.round(parseFloat(owner.balance_formatted));
+  const pct = (holdings / TOTAL_SUPPLY) * 100;
+  return {
+    address: owner.owner_address.toLowerCase(),
+    holdings,
+    percentage: parseFloat(pct.toFixed(6)),
+    label,
+    entityName: name,
+    isContract: !!owner.is_contract,
+  };
 }
 
 function toCSV(holders) {
@@ -182,70 +113,47 @@ function toCSV(holders) {
   return [header, ...rows].join("\n") + "\n";
 }
 
-async function loadExisting() {
-  try {
-    const raw = await fs.readFile(JSON_PATH, "utf8");
-    return JSON.parse(raw);
-  } catch {
-    return null;
-  }
-}
-
 async function main() {
   const started = Date.now();
   await fs.mkdir(OUT_DIR, { recursive: true });
 
-  const latest = await client.getBlockNumber();
-  console.log(`latest block: ${latest}`);
+  console.log(`fetching all PHL holders from Moralis (up to ${MAX_PAGES} pages × ${PAGE_SIZE})`);
 
-  const existing = await loadExisting();
-  let fromBlock;
-  const seenCandidates = new Set();
+  const all = [];
+  let cursor;
+  let pages = 0;
+  do {
+    const data = await fetchPage(cursor);
+    const mapped = data.result
+      .filter((o) => parseFloat(o.balance_formatted) > 0)
+      .map(mapOwner);
+    all.push(...mapped);
+    cursor = data.cursor ?? undefined;
+    pages++;
+    if (pages % 10 === 0 || !cursor) {
+      console.log(`  page ${pages} · total holders: ${all.length}`);
+    }
+  } while (cursor && pages < MAX_PAGES);
 
-  if (existing?.holders) {
-    for (const h of existing.holders) seenCandidates.add(h.address);
-  }
-
-  if (existing?.lastBlock && Number.isFinite(existing.lastBlock)) {
-    fromBlock = BigInt(existing.lastBlock) + 1n;
-    console.log(`incremental · fromBlock ${fromBlock} · ${existing.holders.length} known holders`);
-  } else {
-    fromBlock = PHL_DEPLOY_BLOCK;
-    console.log(`seed · fromBlock ${fromBlock} (PHL deploy block)`);
-  }
-
-  if (fromBlock > latest) {
-    console.log("no new blocks since last run");
-    return;
-  }
-
-  const newCandidates = await scanTransfers(fromBlock, latest);
-  for (const a of newCandidates) seenCandidates.add(a);
-
-  const all = Array.from(seenCandidates);
-  console.log(`total candidates to balance-check: ${all.length}`);
-
-  const balances = await multicallBalances(all);
-  const positive = Array.from(balances.keys());
-  const contracts = await detectContracts(positive);
-  const holders = buildHolders(balances, contracts);
+  all.sort((a, b) => b.holdings - a.holdings);
+  all.forEach((h, i) => { h.rank = i + 1; });
 
   const payload = {
     generatedAt: new Date().toISOString(),
-    lastBlock: Number(latest),
-    total: holders.length,
+    total: all.length,
     totalSupply: TOTAL_SUPPLY,
-    source: "quicknode-polygon-rpc",
-    holders,
+    source: "moralis",
+    pages,
+    holders: all,
   };
 
   await fs.writeFile(JSON_PATH, JSON.stringify(payload));
-  await fs.writeFile(CSV_PATH, toCSV(holders));
+  await fs.writeFile(CSV_PATH, toCSV(all));
 
   const elapsed = ((Date.now() - started) / 1000).toFixed(1);
   console.log("");
-  console.log(`✓ holders: ${holders.length}`);
-  console.log(`✓ lastBlock: ${latest}`);
+  console.log(`✓ holders: ${all.length}`);
+  console.log(`✓ pages: ${pages}`);
   console.log(`✓ elapsed: ${elapsed}s`);
   console.log(`✓ wrote ${JSON_PATH} (${(JSON.stringify(payload).length / 1024).toFixed(1)} KB)`);
   console.log(`✓ wrote ${CSV_PATH}`);
