@@ -1,8 +1,10 @@
 "use client";
 
+import dynamic from "next/dynamic";
+import { useState } from "react";
 import Link from "next/link";
+import { AnimatePresence, motion } from "framer-motion";
 import PhilLogo from "./PhilLogo";
-import EcosystemGrid from "./EcosystemGrid";
 import {
   ECOSYSTEM,
   CATEGORY_META,
@@ -10,9 +12,20 @@ import {
   STATUS_META,
   contractsByCategory,
   explorerUrl,
+  type EcosystemContract,
 } from "@/lib/ecosystem";
 
+const EcosystemGlobe = dynamic(() => import("./EcosystemGlobe"), {
+  ssr: false,
+  loading: () => (
+    <div className="w-full rounded-2xl border border-white/5 flex items-center justify-center" style={{ background: "#04040a", minHeight: 640 }}>
+      <div className="font-mono text-xs text-white/40 tracking-[0.3em]">INITIALIZING ORBIT…</div>
+    </div>
+  ),
+});
+
 export default function ContractsView() {
+  const [selected, setSelected] = useState<EcosystemContract | null>(null);
   return (
     <main className="min-h-screen pb-20" style={{ backgroundColor: "var(--bg-void)" }}>
       <header className="sticky top-0 z-40 border-b backdrop-blur-xl" style={{
@@ -47,7 +60,7 @@ export default function ContractsView() {
           </p>
         </div>
 
-        <EcosystemGrid />
+        <EcosystemGlobe onSelect={setSelected} />
 
         <div className="mt-10">
           <h2 className="text-lg font-semibold text-text-primary mb-4 tracking-tight">
@@ -146,6 +159,112 @@ export default function ContractsView() {
           </div>
         </div>
       </section>
+
+      <AnimatePresence>
+        {selected && <ContractModal contract={selected} onClose={() => setSelected(null)} />}
+      </AnimatePresence>
     </main>
+  );
+}
+
+function ContractModal({ contract, onClose }: { contract: EcosystemContract; onClose: () => void }) {
+  const [copied, setCopied] = useState(false);
+  const s = STATUS_META[contract.status];
+  const meta = CATEGORY_META[contract.category];
+
+  const copy = async (text: string) => {
+    try {
+      await navigator.clipboard.writeText(text);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 1500);
+    } catch {}
+  };
+
+  return (
+    <motion.div
+      initial={{ opacity: 0 }}
+      animate={{ opacity: 1 }}
+      exit={{ opacity: 0 }}
+      className="fixed inset-0 z-50 flex items-center justify-center p-4 md:p-8"
+      onClick={onClose}
+    >
+      <div className="absolute inset-0 bg-black/75 backdrop-blur-sm" />
+      <motion.div
+        initial={{ scale: 0.94, y: 20, opacity: 0 }}
+        animate={{ scale: 1, y: 0, opacity: 1 }}
+        exit={{ scale: 0.94, opacity: 0 }}
+        transition={{ type: "spring", stiffness: 260, damping: 24 }}
+        className="relative max-w-xl w-full rounded-xl border p-6 font-mono"
+        style={{
+          backgroundColor: "#0a0a12",
+          borderColor: s.color,
+          boxShadow: `0 0 40px ${s.color}33, inset 0 0 0 1px rgba(255,255,255,0.02)`,
+        }}
+        onClick={(e) => e.stopPropagation()}
+      >
+        <div className="flex items-start justify-between mb-5">
+          <div>
+            <div className="text-[10px] tracking-[0.3em] mb-1" style={{ color: meta.accent }}>
+              {meta.label}
+            </div>
+            <h2 className="text-2xl font-bold text-white leading-tight font-display">{contract.name}</h2>
+          </div>
+          <button onClick={onClose} className="text-white/40 hover:text-white text-xl" aria-label="Close">✕</button>
+        </div>
+
+        <div className="space-y-3 text-sm">
+          <DetailRow label="Status" value={
+            <span className="inline-flex items-center gap-2" style={{ color: s.color }}>
+              <span className="w-2 h-2 rounded-full" style={{ backgroundColor: s.color, boxShadow: `0 0 8px ${s.color}` }} />
+              {s.label}
+            </span>
+          } />
+          <DetailRow label="Chain" value={contract.chain} />
+          <DetailRow label="Type" value={contract.type.toUpperCase()} />
+          <DetailRow label="Address" value={
+            contract.address ? (
+              <div className="flex items-center gap-2">
+                <a href={explorerUrl(contract)} target="_blank" rel="noopener noreferrer" className="text-white hover:text-accent-phil transition break-all text-xs">
+                  {contract.address}
+                </a>
+                <button
+                  onClick={() => copy(contract.address)}
+                  className="flex-shrink-0 w-7 h-7 flex items-center justify-center rounded border border-white/10 hover:border-accent-phil/50 hover:bg-white/5 transition"
+                  title={copied ? "Copied!" : "Copy"}
+                >
+                  {copied
+                    ? <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="#22c55e" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round"><polyline points="20 6 9 17 4 12"/></svg>
+                    : <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="text-white/60"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>
+                  }
+                </button>
+              </div>
+            ) : <span className="text-white/40">not deployed</span>
+          } />
+          {contract.owner && (
+            <DetailRow label="Owner" value={<span className="break-all text-white/80 text-xs">{contract.owner}</span>} />
+          )}
+          <div className="pt-3 text-white/70 leading-relaxed font-display text-[13px] border-t border-white/5">
+            {contract.description}
+          </div>
+        </div>
+
+        {contract.address && (
+          <a href={explorerUrl(contract)} target="_blank" rel="noopener noreferrer"
+            className="mt-5 inline-flex items-center gap-2 px-4 py-2 rounded-md border text-xs tracking-[0.2em]"
+            style={{ borderColor: s.color, color: s.color }}>
+            VIEW ON EXPLORER →
+          </a>
+        )}
+      </motion.div>
+    </motion.div>
+  );
+}
+
+function DetailRow({ label, value }: { label: string; value: React.ReactNode }) {
+  return (
+    <div className="flex items-start gap-4 text-xs">
+      <div className="text-white/40 uppercase tracking-[0.2em] w-20 flex-shrink-0 pt-0.5">{label}</div>
+      <div className="text-white/90 flex-1">{value}</div>
+    </div>
   );
 }
